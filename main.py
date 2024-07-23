@@ -5,31 +5,114 @@ global selected_point, is_drag
 is_drag = False
 selected_point = None
 
-def binomial_coefficients(n, k):
-    a, b, c = 1, 1, 1
+
+dpg.create_context()
+DEG = 3
+WIDTH = 500
+HEIGHT = 500
+R = 70
+global cps, method, t_selected
+cps = np.array([[100, 400], [200, 300], [300, 300], [400, 400]])
+t_selected = 0.5
+method = "Polynomial"
+methods = ["Polynomial", "Bernstein Poly", "de Casteljau", "Seiler (diff. terms)", "Seiler (pure lerp)", "Seiler (offsets)"]
+dpg.add_window(no_scrollbar=True, tag="main_window")
+dpg.add_window(no_scrollbar=True, tag="settings")
+
+def set_method(sender, app_data):
+    global method
+    method = app_data
+    draw()
+
+def set_t(sender, app_data):
+    global t_selected
+    t_selected = app_data
+    draw()
+
+dpg.add_slider_float(label="t", min_value=0.0, max_value=1.0, callback=set_t, parent="settings", default_value=t_selected)
+dpg.add_text("methods", parent="settings")
+dpg.add_radio_button(methods, callback=set_method, parent="settings")
+
+def factorial(n):
+    result = 1
     for i in range(n):
-        a *= i+1
-    for i in range(k):
-        b *= i+1
-    for i in range(n-k):
-        c *= i+1
-    return a / (b * c)
+        result *= i+1
+    return result
+
+def binomial_coefficients(n, k):
+    return factorial(n) / (factorial(k) * factorial(n-k))
+
+def de_casteljau(t, bs):
+    if len(bs) == 1:
+        return bs[0]
+    result = []
+    for i, b in enumerate(bs):
+        if i == 0:
+            continue
+        result.append(L(bs[i-1], b, t))
+    result = de_casteljau(t, result)
+    return result
+
+# def de_casteljau(t, coefs):
+#     beta = coefs.copy()
+#     n = len(beta)
+#     for j in range(1, n):
+#         for k in range(n - j):
+#             beta[k] = beta[k] * (1 - t) + beta[k + 1] * t
+#     return beta[0]
 
 def L(a, b, t):
     return (1 - t) * a + t * b
+
+def get_ds():
+    ds = {}
+    ds[0] = cps[0]
+    ds[DEG] = cps[-1]
+    ds[1] = DEG * (cps[1] - cps[0]) - (cps[-1] - cps[0])
+    if ds.get(DEG - 1) is None:
+        ds[DEG - 1] = DEG * (cps[-2] - cps[-1]) - (cps[0] - cps[-1])
+    if ds.get(2) is None:
+        ds[2] = binomial_coefficients(DEG, 2) * (cps[2] - cps[1]) - binomial_coefficients(DEG - 2, 2) * (cps[1] - cps[0]) - (DEG - 3) * (cps[-2] - cps[-1]) - 3 * (cps[-2] - cps[1])
+    if ds.get(DEG - 2) is None:
+        ds[DEG - 2] = binomial_coefficients(DEG, 2) * (cps[-3] - cps[-2]) - binomial_coefficients(DEG - 2, 2) * (cps[-2] - cps[-1]) - (DEG - 3) * (cps[1] - cps[0]) - 3 * (cps[1] - cps[-2])
+    return ds
+
+# coeff of Polynomial form. Ref: https://en.wikipedia.org/wiki/B%C3%A9zier_curve
+def C(j):
+    k = 1
+    for m in range(j):
+        k *= (DEG - m)
+    s = sum([(-1) ** (i + j) * cps[i] / (factorial(i) * factorial(j-i)) for i in range(j+1)])
+    return k * s
+
+
+def D(i, t, ds):
+    if i * 2 == DEG + 1:
+        return 0
+    if i * 2 == DEG:
+        return ds[i]
+    return L(ds[i], ds[DEG - i], t) + (1 - t) * t * D(i+1, t, ds)
+
+def E(i, t, ds, positive=True):
+    if DEG - 1 <= 2 * i and 2 * i <= DEG + 1:
+        return ds[i]
+    i_next = i + 1 if positive else i - 1
+    return ds[i] + (1 - t) * t * E(i_next, t, ds, positive)
 
 gray = [120, 120, 120]
 yellow = [200, 200, 0]
 blue = [120, 120, 255]
 red = [255, 0, 0]
 green = [0, 255, 0]
-def draw():
+
+# in case of degree = 3
+def draw_cubic():
     # init canvas
     if dpg.does_item_exist("canvas"):
         dpg.delete_item("canvas")
     dpg.add_drawlist(width=WIDTH, height=HEIGHT, tag="canvas", parent="main_window")
 
-    # draw controll points
+    # draw control points
     for i, cp in enumerate(cps):
         dpg.draw_circle(cp, 5, parent="canvas", color=gray)
         if i > 0:
@@ -54,10 +137,6 @@ def draw():
             t = i / N
             if i == 0:
                 prev = cps[0]
-            # current = 0
-            # for j, cp in enumerate(cps):
-            #     coeff = binomial_coefficients(DEG, j)
-            #     current += coeff * t ** j * (1 - t) ** (DEG - j) * cp
             current = (1-t) ** 3 * cps[0] + 3 * (1-t) ** 2 * t * cps[1] + 3 * (1-t) * t ** 2 * cps[2] + t ** 3 * cps[3]
             dpg.draw_line(prev, current, thickness=1, parent="canvas")
             prev = current
@@ -110,7 +189,7 @@ def draw():
                 dpg.draw_line(prev, current, thickness=1, parent="canvas")
                 prev = current
     
-    # draw auxiliary lines
+    # draw auxiliary lines and circles
     t = t_selected
     if method == "Polynomial":
         p0 = cps[0]
@@ -168,32 +247,84 @@ def draw():
             current = L(e1, e2, t)
     dpg.draw_circle(current, 5, parent="canvas")
 
-def set_method(sender, app_data):
-    global method
-    method = app_data
-    draw()
+# in case of 2 <= degree <= 5
+def draw():
+    # init canvas
+    if dpg.does_item_exist("canvas"):
+        dpg.delete_item("canvas")
+    dpg.add_drawlist(width=WIDTH, height=HEIGHT, tag="canvas", parent="main_window")
 
-def set_t(sender, app_data):
-    global t_selected
-    t_selected = app_data
-    draw()
+    # draw control points
+    for i, cp in enumerate(cps):
+        dpg.draw_circle(cp, 5, parent="canvas", color=gray)
+        if i > 0:
+            dpg.draw_line(cp, cps[i-1], thickness=1, parent="canvas", color=gray)
 
-dpg.create_context()
-DEG = 3
-WIDTH = 500
-HEIGHT = 500
-R = 70
-global cps, method, t_selected
-cps = np.array([[100, 400], [200, 300], [300, 300], [400, 400]])
-t_selected = 0.5
-method = "Polynomial"
-methods = ["Polynomial", "Bernstein Poly", "de Casteljau", "Seiler (diff. terms)", "Seiler (pure lerp)", "Seiler (offsets)"]
-dpg.add_window(no_scrollbar=True, tag="main_window")
-dpg.add_window(no_scrollbar=True, tag="settings")
-dpg.add_slider_float(label="t", min_value=0.0, max_value=1.0, callback=set_t, parent="settings", default_value=t_selected)
-dpg.add_text("methods", parent="settings")
-dpg.add_radio_button(methods, callback=set_method, parent="settings")
-draw()
+    # draw curve
+    N = 100
+    if method == "Polynomial":
+        coeffs = []
+        for i in range(DEG+1):
+            coeffs.append(C(i))
+        for i in range(N+1):
+            t = i / N
+            if i == 0:
+                prev = cps[0]
+            current = 0
+            for j in range(DEG+1):
+                current += t ** j * coeffs[j]
+            dpg.draw_line(prev, current, thickness=1, parent="canvas")
+            prev = current
+    elif method == "Bernstein Poly":
+        for i in range(N+1):
+            t = i / N
+            if i == 0:
+                prev = cps[0]
+            current = 0
+            for j, cp in enumerate(cps):
+                coeff = binomial_coefficients(DEG, j)
+                current += coeff * t ** j * (1 - t) ** (DEG - j) * cp
+            dpg.draw_line(prev, current, thickness=1, parent="canvas")
+            prev = current
+    elif method == "de Casteljau":
+        for i in range(N+1):
+            t = i / N
+            if i == 0:
+                prev = cps[0]
+            current = de_casteljau(t, cps)
+            dpg.draw_line(prev, current, thickness=1, parent="canvas")
+            prev = current
+    else:
+        ds = get_ds()
+        if method == "Seiler (diff. terms)":
+            for i in range(N+1):
+                t = i / N
+                if i == 0:
+                    prev = cps[0]
+                current = L(cps[0], cps[-1], t) + (1 - t) * t * D(1, t, ds)
+                dpg.draw_line(prev, current, thickness=1, parent="canvas")
+                prev = current
+        elif method == "Seiler (pure lerp)":
+            s1 = ds[1] + cps[0]
+            s2 = ds[DEG - 1] + cps[3]
+            for i in range(N+1):
+                t = i / N
+                if i == 0:
+                    prev = cps[0]
+                s12 = L(s1, s2, t)
+                b03 = L(cps[0], cps[3], t)
+                current = L(b03, s12, (1 - t) * t)
+                dpg.draw_line(prev, current, thickness=1, parent="canvas")
+                prev = current
+        elif method == "Seiler (offsets)":
+            ds = get_ds()
+            for i in range(N+1):
+                if i == 0:
+                    prev = cps[0]
+                t = i / N
+                current = L(E(0, t, ds), E(DEG, t, ds, False), t)
+                dpg.draw_line(prev, current, thickness=1, parent="canvas")
+                prev = current
 
 def mouse_move(sender, app_data):
     if dpg.get_item_alias(dpg.get_active_window()) == "main_window":
@@ -229,6 +360,7 @@ with dpg.handler_registry():
     dpg.add_mouse_release_handler(button=dpg.mvMouseButton_Left, callback=mouse_release)
     dpg.add_mouse_move_handler(callback=mouse_move)
 
+draw()
 dpg.create_viewport()
 dpg.setup_dearpygui()
 dpg.show_viewport()
