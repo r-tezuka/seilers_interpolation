@@ -57,15 +57,19 @@ def factorial(n):
 def binomial_coefficients(n, k):
     return factorial(n) / (factorial(k) * factorial(n-k))
 
-def de_casteljau(t, bs):
+def de_casteljau(t, bs, ref_points=[]):
     if len(bs) == 1:
         return bs[0]
     result = []
+    ps = []
     for i, b in enumerate(bs):
         if i == 0:
             continue
-        result.append(L(bs[i-1], b, t))
-    result = de_casteljau(t, result)
+        ref = L(bs[i-1], b, t)
+        result.append(ref)
+        ps.append(ref)
+    ref_points.append(ps)
+    result = de_casteljau(t, result, ref_points)
     return result
 
 def L(a, b, t):
@@ -84,7 +88,7 @@ def get_ds():
         ds[deg - 2] = binomial_coefficients(deg, 2) * (cps[-3] - cps[-2]) - binomial_coefficients(deg - 2, 2) * (cps[-2] - cps[-1]) - (deg - 3) * (cps[1] - cps[0]) - 3 * (cps[1] - cps[-2])
     return ds
 
-def get_ss(ds):
+def get_ss(ds, ss_neg={}):
     s_dict = {}
     s_dict[0] = cps[0]
     s_dict[deg] = cps[-1]
@@ -93,6 +97,7 @@ def get_ss(ds):
             s_dict[i] = s_dict[i-1] + ds[i]
         if s_dict.get(deg-i) is None:
             s_dict[deg-i] = s_dict[deg-i+1] + ds[deg-i]
+        ss_neg[deg-i] = s_dict[deg-i+1] + ds[deg-i]
     return s_dict
 
 # coeff of Polynomial form. Ref: https://en.wikipedia.org/wiki/B%C3%A9zier_curve
@@ -187,7 +192,8 @@ def draw():
                 dpg.draw_line(prev, current, thickness=1, parent="canvas")
                 prev = current
         elif method == "Seiler (pure lerp)":
-            ss = get_ss(ds)
+            ss_neg = {}
+            ss = get_ss(ds, ss_neg)
             for i in range(N+1):
                 t = i / N
                 if i == 0:
@@ -196,7 +202,6 @@ def draw():
                 dpg.draw_line(prev, current, thickness=1, parent="canvas")
                 prev = current
         elif method == "Seiler (offsets)":
-            ds = get_ds()
             for i in range(N+1):
                 if i == 0:
                     prev = cps[0]
@@ -204,6 +209,79 @@ def draw():
                 current = L(E(0, t, ds), E(deg, t, ds, False), t)
                 dpg.draw_line(prev, current, thickness=1, parent="canvas")
                 prev = current
+
+    # draw auxiliary lines and circles
+    t = t_selected
+    if method == "Polynomial":
+        current = 0
+        for j in range(deg+1):
+            current += t ** j * coeffs[j]
+    elif method == "Bernstein Poly":
+        current = 0
+        for j, cp in enumerate(cps):
+            coeff = binomial_coefficients(deg, j)
+            current += coeff * t ** j * (1 - t) ** (deg - j) * cp
+    elif method == "de Casteljau":
+        ref_points = []
+        current = de_casteljau(t, cps, ref_points)
+        for ps in ref_points:
+            for i, p in enumerate(ps):
+                dpg.draw_circle(p, 5, parent="canvas", color=yellow)
+                if i == 0:
+                    continue
+                dpg.draw_line(p, ps[i-1], thickness=1, parent="canvas", color=yellow)
+    else:
+        b = L(cps[0], cps[-1], t)
+        if method == "Seiler (diff. terms)":
+            dpg.draw_line(cps[0], cps[-1], thickness=1, parent="canvas", color=blue)
+            d = D(1, t, ds)
+            current = L(cps[0], cps[-1], t) + (1 - t) * t * d
+            dpg.draw_circle(b, 5, parent="canvas", color=blue)
+            dpg.draw_line(b, d + b, thickness=1, parent="canvas", color=blue) 
+        elif method == "Seiler (pure lerp)":
+            dpg.draw_line(cps[0], cps[-1], thickness=1, parent="canvas", color=blue)
+            prev = None
+            for i in range(1, int(deg/2)+1):
+                dpg.draw_line(ss[i], cps[i-1], thickness=1, parent="canvas", color=green)
+                dpg.draw_line(ss_neg[deg-i], cps[-i], thickness=1, parent="canvas", color=green)
+                dpg.draw_line(ss[i], ss_neg[deg-i], thickness=1, parent="canvas", color=green)
+                p = L(ss[i], ss_neg[deg-i], t)
+                dpg.draw_circle(p, 5, parent="canvas", color=green)
+                if prev is not None:
+                    dpg.draw_line(p, prev, thickness=1, parent="canvas", color=green)
+                prev = p
+            s = S(1, t, ss)
+            current = L(cps[0], cps[-1], t) + (1 - t) * t * s
+            dpg.draw_circle(b, 5, parent="canvas", color=blue)
+            dpg.draw_circle(s + b, 5, parent="canvas", color=green)
+            dpg.draw_line(b, s + b, thickness=1, parent="canvas", color=blue)
+        elif method == "Seiler (offsets)":
+            ss_neg = {}
+            ss = get_ss(ds, ss_neg)
+            prev, prev_neg = None, None
+            for i in range(1, int(deg/2)+1):
+                dpg.draw_line(ss[i], cps[0], thickness=1, parent="canvas", color=green)
+                dpg.draw_line(ss_neg[deg-i], cps[deg], thickness=1, parent="canvas", color=green)
+                if prev is not None:
+                    dpg.draw_line(ss[i], prev, thickness=1, parent="canvas", color=green)
+                    dpg.draw_line(ss_neg[deg-i], prev_neg, thickness=1, parent="canvas", color=green)
+                prev, prev_neg = ss[i], ss_neg[deg-i]
+
+            e_start = E(1, t, ds)
+            e_end = E(deg-1, t, ds, False)
+            dpg.draw_line(e_start + cps[0], cps[0], thickness=1, parent="canvas", color=green)
+            dpg.draw_line(e_end + cps[deg], cps[deg], thickness=1, parent="canvas", color=green)
+            dpg.draw_circle(e_start + cps[0], 5, parent="canvas", color=green)
+            dpg.draw_circle(e_end + cps[deg], 5, parent="canvas", color=green)
+
+
+            e1 = E(0, t, ds)
+            e2 = E(deg, t, ds, False)
+            dpg.draw_circle(e1, 5, parent="canvas", color=red)
+            dpg.draw_circle(e2, 5, parent="canvas", color=red)
+            dpg.draw_line(e1, e2, thickness=1, parent="canvas", color=red)
+            current = L(e1, e2, t)
+    dpg.draw_circle(current, 5, parent="canvas")
 
 def mouse_move(sender, app_data):
     if dpg.get_item_alias(dpg.get_active_window()) == "main_window":
