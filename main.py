@@ -68,14 +68,6 @@ def de_casteljau(t, bs):
     result = de_casteljau(t, result)
     return result
 
-# def de_casteljau(t, coefs):
-#     beta = coefs.copy()
-#     n = len(beta)
-#     for j in range(1, n):
-#         for k in range(n - j):
-#             beta[k] = beta[k] * (1 - t) + beta[k + 1] * t
-#     return beta[0]
-
 def L(a, b, t):
     return (1 - t) * a + t * b
 
@@ -90,38 +82,18 @@ def get_ds():
         ds[2] = binomial_coefficients(deg, 2) * (cps[2] - cps[1]) - binomial_coefficients(deg - 2, 2) * (cps[1] - cps[0]) - (deg - 3) * (cps[-2] - cps[-1]) - 3 * (cps[-2] - cps[1])
     if ds.get(deg - 2) is None:
         ds[deg - 2] = binomial_coefficients(deg, 2) * (cps[-3] - cps[-2]) - binomial_coefficients(deg - 2, 2) * (cps[-2] - cps[-1]) - (deg - 3) * (cps[1] - cps[0]) - 3 * (cps[1] - cps[-2])
-    # print(0, cps[0])
-    # print(deg, cps[-1])
-    # print(1, deg * (cps[1] - cps[0]) - (cps[-1] - cps[0]))
-    # print(deg - 1, deg * (cps[-2] - cps[-1]) - (cps[0] - cps[-1]))
-    # print(2, binomial_coefficients(deg, 2) * (cps[2] - cps[1]) - binomial_coefficients(deg - 2, 2) * (cps[1] - cps[0]) - (deg - 3) * (cps[-2] - cps[-1]) - 3 * (cps[-2] - cps[1]))
-    # print(deg - 2, binomial_coefficients(deg, 2) * (cps[-3] - cps[-2]) - binomial_coefficients(deg - 2, 2) * (cps[-2] - cps[-1]) - (deg - 3) * (cps[1] - cps[0]) - 3 * (cps[1] - cps[-2]))
     return ds
 
-# def get_ss(ds):
-#     s_dict = {}
-#     s_dict[0] = cps[0]
-#     s_dict[deg] = cps[-1]
-#     i_result = 0
-#     for i in range(deg):
-#         if i >= deg/2:
-#             i_result = i - 1
-#             break
-#         if s_dict.get(i) is None:
-#             s_dict[i] = s_dict[i-1] + ds[i]
-#         if s_dict.get(deg-i) is None:
-#             s_dict[deg-i] = s_dict[deg-i+1] + ds[deg-i]
-#     return s_dict, i_result
-
 def get_ss(ds):
-    s_start, s_end = cps[0], cps[-1]
+    s_dict = {}
+    s_dict[0] = cps[0]
+    s_dict[deg] = cps[-1]
     for i in range(1, int(deg/2)+1):
-        # print(s_start, s_end, ds[i], ds[deg-i])
-        s_start = s_start + ds[i]
-        s_end = s_end + ds[deg-i]
-    # print("result", s_start, s_end)
-    return s_start, s_end
-
+        if s_dict.get(i) is None:
+            s_dict[i] = s_dict[i-1] + ds[i]
+        if s_dict.get(deg-i) is None:
+            s_dict[deg-i] = s_dict[deg-i+1] + ds[deg-i]
+    return s_dict
 
 # coeff of Polynomial form. Ref: https://en.wikipedia.org/wiki/B%C3%A9zier_curve
 def C(j):
@@ -137,6 +109,13 @@ def D(i, t, ds):
     if i * 2 == deg:
         return ds[i]
     return L(ds[i], ds[deg - i], t) + (1 - t) * t * D(i+1, t, ds)
+
+def S(i, t, ss):
+    if i * 2 == deg + 1:
+        return 0
+    if i * 2 == deg:
+        return ss[i] - ss[i-1]
+    return L(ss[i] - ss[i-1], ss[deg-i] - ss[deg-i+1], t) + (1 - t) * t * S(i+1, t, ss)
 
 def E(i, t, ds, positive=True):
     if deg - 1 <= 2 * i and 2 * i <= deg + 1:
@@ -208,15 +187,12 @@ def draw():
                 dpg.draw_line(prev, current, thickness=1, parent="canvas")
                 prev = current
         elif method == "Seiler (pure lerp)":
-            # [TODO]: これだけ動きおかしいので確認する
-            s1, s2 = get_ss(ds)
+            ss = get_ss(ds)
             for i in range(N+1):
                 t = i / N
                 if i == 0:
                     prev = cps[0]
-                s12 = L(s1, s2, t)
-                b = L(cps[0], cps[-1], t)
-                current = L(b, s12, (1 - t) * t)
+                current = L(cps[0], cps[-1], t) + (1 - t) * t * S(1, t, ss)
                 dpg.draw_line(prev, current, thickness=1, parent="canvas")
                 prev = current
         elif method == "Seiler (offsets)":
