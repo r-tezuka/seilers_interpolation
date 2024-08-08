@@ -3,4 +3,4 @@ Python implementation for seilers_interpolation: http://www.cemyuksel.com/resear
 
 This repository uses DearPyGui as GUI: https://github.com/hoffstadt/DearPyGui/
 
-![demo]("/demo.gif")
+![demo]("https://github.com/r-tezuka/seilers_interpolation/blob/main/demo.gif")
